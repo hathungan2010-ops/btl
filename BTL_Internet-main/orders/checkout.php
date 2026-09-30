@@ -1,208 +1,55 @@
 <?php
-// xử lý quy trình đơn hàng, nhập địa chỉ giao hàng và lưu đơn hàng vào csdl 
-// thực hiện trừ số lượng tồn kho và xóa giỏ hàng
-?> 
-
-<?php
-// Nhúng cấu hình CSDL và phiên làm việc[cite: 1, 3]
-require_once "../config.php";
-
-// BẢO VỆ XÁC THỰC: Bắt buộc người dùng phải đăng nhập[cite: 1]
-if (!isset($_SESSION['user_id'])) {
-    header("Location: " . $base_url . "/account/login.php?msg=need_login");
-    exit();
+require_once __DIR__.'/../config.php';$u=require_role(['khach_hang']);$uid=(int)$u['id_nguoi_dung'];$error='';
+function checkout_quote(array $items):string {
+    return hash('sha256',json_encode(array_map(static function($i){return [(int)$i['id_bien_the'],(int)$i['so_luong'],(string)$i['gia']];},$items)));
 }
-
-$id_user = $_SESSION['user_id'];
-$error = '';
-
-// LẤY CHI TIẾT GIỎ HÀNG CỦA NGƯỜI DÙNG[cite: 2]
-$sql_cart = "SELECT ct.id_chi_tiet, ct.id_bien_the, ct.so_luong, bt.gia, bt.so_luong_ton,
-                    sp.ten_san_pham, sp.hinh_anh, kt.ten_kich_thuoc, ms.ten_mau_sac
-             FROM chi_tiet_gio_hang ct
-             JOIN gio_hang gh ON ct.id_gio_hang = gh.id_gio_hang
-             JOIN bien_the_san_pham bt ON ct.id_bien_the = bt.id_bien_the
-             JOIN san_pham sp ON bt.id_san_pham = sp.id_san_pham
-             JOIN kich_thuoc kt ON bt.id_kich_thuoc = kt.id_kich_thuoc
-             JOIN mau_sac ms ON bt.id_mau_sac = ms.id_mau_sac
-             WHERE gh.id_nguoi_dung = ?";
-
-$stmt = $conn->prepare($sql_cart);
-$stmt->execute([$id_user]);
-$cart_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-if (empty($cart_items)) {
-    header("Location: " . $base_url . "/cart/index.php");
-    exit();
-}
-
-// Tính tổng tiền đơn hàng
-$tong_tien_don_hang = 0;
-foreach ($cart_items as $item) {
-    $tong_tien_don_hang += $item['gia'] * $item['so_luong'];
-}
-
-// LẤY THÔNG TIN TÀI KHOẢN CỦA KHÁCH HÀNG[cite: 2]
-$stmt_user = $conn->prepare("SELECT ho_ten, email, so_dien_thoai FROM nguoi_dung WHERE id_nguoi_dung = ?");
-$stmt_user->execute([$id_user]);
-$user_info = $stmt_user->fetch(PDO::FETCH_ASSOC);
-
-// XỬ LÝ ĐẶT HÀNG KHI BẤM NÚT SUBMIT
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $ho_ten_nhan = trim($_POST['ho_ten_nguoi_nhan']);
-    $so_dien_thoai = trim($_POST['so_dien_thoai_nguoi_nhan']);
-    $dia_chi_giao_hang = trim($_POST['dia_chi_giao_hang']);
-    $phuong_thuc_thanh_toan = $_POST['phuong_thuc_thanh_toan'];
-
-    if (empty($ho_ten_nhan) || empty($so_dien_thoai) || empty($dia_chi_giao_hang)) {
-        $error = "Vui lòng nhập đầy đủ thông tin người nhận và địa chỉ giao hàng!";
-    } else {
-        try {
-            $conn->beginTransaction();
-
-            // CÂU LỆNH INSERT KHỚP CHÍNH XÁC VỚI BẢNG don_hang CỦA BẠN[cite: 2, 9]
-            $sql_order = "INSERT INTO don_hang (id_nguoi_dung, ho_ten_nhan, so_dien_thoai, dia_chi_giao_hang, tong_tien, phuong_thuc_thanh_toan, trang_thai) 
-                          VALUES (?, ?, ?, ?, ?, ?, 'Chờ xử lý')";
-            $stmt_order = $conn->prepare($sql_order);
-            $stmt_order->execute([
-                $id_user, 
-                $ho_ten_nhan, 
-                $so_dien_thoai, 
-                $dia_chi_giao_hang, 
-                $tong_tien_don_hang, 
-                $phuong_thuc_thanh_toan
-            ]);
-
-            $id_don_hang = $conn->lastInsertId();
-
-            // Lưu chi tiết đơn hàng & Trừ tồn kho[cite: 2]
-            $sql_order_detail = "INSERT INTO chi_tiet_don_hang (id_don_hang, id_bien_the, so_luong, don_gia) VALUES (?, ?, ?, ?)";
-            $stmt_order_detail = $conn->prepare($sql_order_detail);
-
-            $sql_update_stock = "UPDATE bien_the_san_pham SET so_luong_ton = so_luong_ton - ? WHERE id_bien_the = ?";
-            $stmt_update_stock = $conn->prepare($sql_update_stock);
-
-            foreach ($cart_items as $item) {
-                if ($item['so_luong'] > $item['so_luong_ton']) {
-                    throw new Exception("Sản phẩm '" . $item['ten_san_pham'] . "' không đủ số lượng trong kho!");
-                }
-
-                $stmt_order_detail->execute([$id_don_hang, $item['id_bien_the'], $item['so_luong'], $item['gia']]);
-                $stmt_update_stock->execute([$item['so_luong'], $item['id_bien_the']]);
-            }
-
-            // Xóa sản phẩm khỏi giỏ hàng[cite: 2]
-            $sql_clear_cart = "DELETE ct FROM chi_tiet_gio_hang ct 
-                               JOIN gio_hang gh ON ct.id_gio_hang = gh.id_gio_hang 
-                               WHERE gh.id_nguoi_dung = ?";
-            $stmt_clear_cart = $conn->prepare($sql_clear_cart);
-            $stmt_clear_cart->execute([$id_user]);
-
-            $conn->commit();
-
-            // Chuyển hướng tới trang chi tiết đơn hàng vừa đặt[cite: 1]
-            header("Location: " . $base_url . "/orders/detail.php?id=" . $id_don_hang);
-            exit();
-
-        } catch (Exception $e) {
-            $conn->rollBack();
-            $error = "Lỗi đặt hàng: " . $e->getMessage();
+if($_SERVER['REQUEST_METHOD']==='POST'){
+    verify_csrf();
+    try{
+        $token=input('checkout_token');
+        if(!preg_match('/^[a-f0-9]{64}$/D',$token))throw new InvalidArgumentException('Phiên đặt hàng không hợp lệ.');
+        $previous=query('SELECT id_don_hang FROM don_hang WHERE checkout_token=? AND id_nguoi_dung=?',[$token,$uid])->fetchColumn();
+        if($previous)redirect('orders/detail.php?id='.$previous);
+        if(!isset($_SESSION['checkout_token'])||!hash_equals($_SESSION['checkout_token'],$token))throw new InvalidArgumentException('Phiên đặt hàng hết hạn. Hãy tải lại trang.');
+        $name=input('ho_ten_nhan');$phone=input('so_dien_thoai');$address=input('dia_chi_giao_hang');$method=input('phuong_thuc_thanh_toan');
+        if(mb_strlen($name)<2||mb_strlen($name)>100)throw new InvalidArgumentException('Họ tên người nhận cần từ 2 đến 100 ký tự.');
+        validate_phone($phone);
+        if(mb_strlen($address)<10||mb_strlen($address)>255)throw new InvalidArgumentException('Địa chỉ cần từ 10 đến 255 ký tự.');
+        if(!isset(payment_methods()[$method]))throw new InvalidArgumentException('Phương thức thanh toán không hợp lệ.');
+        $conn->beginTransaction();lock_customer($uid);$items=cart_items($uid);
+        if(!$items)throw new InvalidArgumentException('Giỏ hàng đã trống. Vui lòng kiểm tra lịch sử đơn.');
+        foreach($items as &$item){
+            $variant=available_variant((int)$item['id_bien_the']);$quantity=integer((string)$item['so_luong'],1,99);
+            if($quantity>(int)$variant['so_luong_ton'])throw new InvalidArgumentException('Không đủ tồn kho cho '.$variant['ten_san_pham'].'.');
+            $item=array_merge($item,$variant,['so_luong'=>$quantity]);
+        }unset($item);
+        if(!hash_equals(checkout_quote($items),input('quote')))throw new InvalidArgumentException('Giỏ hàng hoặc giá sản phẩm vừa thay đổi. Hãy kiểm tra tổng tiền mới rồi đặt lại.');
+        $total=cart_total($items);
+        if($total<=0||$total>999999999999)throw new InvalidArgumentException('Tổng tiền vượt giới hạn.');
+        query("INSERT INTO don_hang (id_nguoi_dung,ho_ten_nhan,so_dien_thoai,dia_chi_giao_hang,tong_tien,phuong_thuc_thanh_toan,trang_thai,checkout_token) VALUES (?,?,?,?,?,?,'cho_xu_ly',?)",[$uid,$name,$phone,$address,decimal($total),$method,$token]);
+        $orderId=(int)$conn->lastInsertId();
+        foreach($items as $item){
+            query('INSERT INTO chi_tiet_don_hang (id_don_hang,id_bien_the,so_luong,don_gia,thanh_tien,ten_san_pham,ten_kich_thuoc,ten_mau_sac,hinh_anh) VALUES (?,?,?,?,?,?,?,?,?)',
+                [$orderId,$item['id_bien_the'],$item['so_luong'],$item['gia'],decimal(cents($item['gia'])*$item['so_luong']),$item['ten_san_pham'],$item['ten_kich_thuoc'],$item['ten_mau_sac'],$item['hinh_anh']]);
+            if(!query('UPDATE bien_the_san_pham SET so_luong_ton=so_luong_ton-? WHERE id_bien_the=? AND so_luong_ton>=?',[$item['so_luong'],$item['id_bien_the'],$item['so_luong']])->rowCount())throw new InvalidArgumentException('Tồn kho đã thay đổi. Hãy thử lại.');
         }
-    }
+        query('DELETE ct FROM chi_tiet_gio_hang ct JOIN gio_hang gh ON gh.id_gio_hang=ct.id_gio_hang WHERE gh.id_nguoi_dung=?',[$uid]);
+        $conn->commit();unset($_SESSION['checkout_token']);flash('Đặt hàng thành công! Mã đơn #'.$orderId.'.');redirect('orders/detail.php?id='.$orderId);
+    }catch(Throwable $ex){if($conn->inTransaction())$conn->rollBack();$error=error_message($ex);}
 }
-
-require_once "../header.php";
+$items=cart_items($uid);if(!$items){if($error)flash($error,'error');redirect('cart/index.php');}
+$token=$_SESSION['checkout_token']??($_SESSION['checkout_token']=bin2hex(random_bytes(32)));
+$page_title='Thanh toán';require __DIR__.'/../header.php';
 ?>
-
-<div class="container section">
-    <h2 class="section-title">THANH TOÁN ĐƠN HÀNG</h2>
-
-    <?php if ($error): ?>
-        <p style="color: #ff4757; background: #ffebeb; padding: 12px; border-radius: 8px; text-align: center; font-weight: 600; margin-bottom: 20px;">
-            <?= $error ?>
-        </p>
-    <?php endif; ?>
-
-    <form method="POST" style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
-        <!-- CỘT TRÁI: THÔNG TIN GIAO HÀNG -->
-        <div style="background: #fff; padding: 24px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-            <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #111827; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px;">
-                1. THÔNG TIN NGƯỜI NHẬN
-            </h3>
-
-            <div style="margin-bottom: 16px;">
-                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Họ và tên người nhận *</label>
-                <input type="text" name="ho_ten_nguoi_nhan" required 
-                       value="<?= htmlspecialchars($_POST['ho_ten_nguoi_nhan'] ?? $user_info['ho_ten']) ?>" 
-                       style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; outline: none;">
-            </div>
-
-            <div style="margin-bottom: 16px;">
-                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Số điện thoại người nhận *</label>
-                <input type="text" name="so_dien_thoai_nguoi_nhan" required 
-                       value="<?= htmlspecialchars($_POST['so_dien_thoai_nguoi_nhan'] ?? $user_info['so_dien_thoai']) ?>" 
-                       style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; outline: none;">
-            </div>
-
-            <div style="margin-bottom: 16px;">
-                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Địa chỉ giao hàng chi tiết *</label>
-                <textarea name="dia_chi_giao_hang" required rows="3" placeholder="Số nhà, tên đường, phường/xã, quận/huyện, tỉnh/thành phố" 
-                          style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; outline: none; font-family: inherit;"><?= htmlspecialchars($_POST['dia_chi_giao_hang'] ?? '') ?></textarea>
-            </div>
-
-            <div style="margin-bottom: 16px;">
-                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Phương thức thanh toán *</label>
-                <select name="phuong_thuc_thanh_toan" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; outline: none;">
-                    <option value="COD">Thanh toán khi nhận hàng (COD)</option>
-                    <option value="Chuyển khoản">Chuyển khoản ngân hàng</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- CỘT PHẢI: TÓM TẮT ĐƠN HÀNG -->
-        <div style="background: #fff; padding: 24px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between;">
-            <div>
-                <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #111827; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px;">
-                    2. ĐƠN HÀNG CỦA BẠN
-                </h3>
-
-                <div style="max-height: 300px; overflow-y: auto; margin-bottom: 20px;">
-                    <?php foreach ($cart_items as $item): 
-                        $subtotal = $item['gia'] * $item['so_luong'];
-                    ?>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6;">
-                            <div>
-                                <p style="font-weight: 700; font-size: 14px; margin: 0; color: #111827;">
-                                    <?= htmlspecialchars($item['ten_san_pham']) ?>
-                                </p>
-                                <p style="font-size: 12px; color: #6b7280; margin: 4px 0 0 0;">
-                                    Size: <?= $item['ten_kich_thuoc'] ?> | Màu: <?= $item['ten_mau_sac'] ?> | SL: x<?= $item['so_luong'] ?>
-                                </p>
-                            </div>
-                            <span style="font-weight: 700; font-size: 14px; color: #111827;">
-                                <?= number_format($subtotal, 0, ',', '.') ?> VNĐ
-                            </span>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-
-                <div style="border-top: 2px solid #e5e7eb; padding-top: 16px;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #4b5563;">
-                        <span>Phí vận chuyển:</span>
-                        <span style="color: #10b981; font-weight: 600;">Miễn phí</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 800; color: #111827;">
-                        <span>Tổng tiền thanh toán:</span>
-                        <span style="color: #ff4757;"><?= number_format($tong_tien_don_hang, 0, ',', '.') ?> VNĐ</span>
-                    </div>
-                </div>
-            </div>
-
-            <button type="submit" class="btn" style="width: 100%; border: none; cursor: pointer; text-align: center; margin-top: 24px; font-size: 16px; padding: 14px;">
-                XÁC NHẬN ĐẶT HÀNG
-            </button>
-        </div>
-    </form>
-</div>
-
-<?php require_once "../footer.php"; ?>
+<main id="main" class="container section"><div class="page-heading"><h1>Thông tin đặt hàng</h1><a class="underlined" href="<?=e(url('cart/index.php'))?>">← Giỏ hàng</a></div>
+<?php if($error):?><div class="alert alert-error" role="alert"><?=e($error)?></div><?php endif;?>
+<form class="checkout-grid" method="post"><?=csrf_field()?><input type="hidden" name="checkout_token" value="<?=e($token)?>"><input type="hidden" name="quote" value="<?=e(checkout_quote($items))?>">
+<section class="panel stack"><h2>Thông tin nhận hàng</h2>
+<div><label for="receiver">Họ tên người nhận</label><input id="receiver" name="ho_ten_nhan" required minlength="2" maxlength="100" autocomplete="name" value="<?=e(input('ho_ten_nhan',null,$u['ho_ten']))?>"></div>
+<div><label for="phone">Điện thoại</label><input id="phone" name="so_dien_thoai" type="tel" required maxlength="20" autocomplete="tel" value="<?=e(input('so_dien_thoai',null,$u['so_dien_thoai']??''))?>"></div>
+<div><label for="address">Địa chỉ giao hàng</label><textarea id="address" name="dia_chi_giao_hang" required minlength="10" maxlength="255" autocomplete="street-address"><?=e(input('dia_chi_giao_hang',null,$u['dia_chi']??''))?></textarea></div>
+<div><label for="payment">Phương thức thanh toán</label><select id="payment" name="phuong_thuc_thanh_toan"><?php foreach(payment_methods() as $value=>$label):?><option value="<?=e($value)?>" <?=input('phuong_thuc_thanh_toan',null,'COD')===$value?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></div>
+<?php if(count(payment_methods())>1):?><p class="help">Chuyển khoản được đối soát thủ công. Thông tin ngân hàng sẽ hiển thị sau khi đặt hàng.</p><?php endif;?></section>
+<aside class="panel summary"><h2>Đơn hàng của bạn</h2><?php foreach($items as $item):?><div class="summary-line"><div><?=e($item['ten_san_pham'])?> × <?=$item['so_luong']?><small><?=e($item['ten_kich_thuoc'].' / '.$item['ten_mau_sac'])?></small></div><strong class="nowrap"><?=money(decimal(cents($item['gia'])*(int)$item['so_luong']))?></strong></div><?php endforeach;?>
+<p class="help">Phí vận chuyển: Miễn phí</p><div class="summary-total"><span>Tổng tiền</span><span><?=money(decimal(cart_total($items)))?></span></div><button class="btn btn-wide">Xác nhận đặt hàng ↗</button></aside></form></main>
+<?php require __DIR__.'/../footer.php';?>
