@@ -1,0 +1,37 @@
+name: PHP store checks
+on:
+  push:
+    branches: [main, codex/complete-fashion-store]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: test-only-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h127.0.0.1 -ptest-only-password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP extensions
+        run: |
+          timeout 120s sudo apt-get update
+          sudo apt-get install -y php-cli php-mysql php-mbstring php-gd
+      - name: PHP syntax
+        run: find BTL_Internet-main -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: HTTP and database regression tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: test-only-password
+          DB_NAME: fashion_store_test
+        run: python3 BTL_Internet-main/tests/integration.py

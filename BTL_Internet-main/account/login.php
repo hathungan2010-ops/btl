@@ -1,81 +1,30 @@
 <?php
-// Nhúng file cấu hình kết nối CSDL và khởi tạo Session
-require_once "../config.php";
-
-$error = '';
-$notification = '';
-
-// KÍCH HOẠT THÔNG BÁO: Kiểm tra nếu khách vãng lai bị đẩy từ trang giỏ hàng/thanh toán sang
-if (isset($_GET['msg']) && $_GET['msg'] === 'need_login') {
-    $notification = "Vui lòng đăng nhập tài khoản để thực hiện chức năng mua hàng!";
-}
-
-// XỬ LÝ ĐĂNG NHẬP
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email']);
-    $mat_khau = $_POST['mat_khau'];
-
-    if (empty($email) || empty($mat_khau)) {
-        $error = "Vui lòng nhập đầy đủ Email và Mật khẩu!";
-    } else {
-        // Truy vấn lấy người dùng theo Email (chỉ tài khoản đang kích hoạt trang_thai = 1)
-        $stmt = $conn->prepare("SELECT * FROM nguoi_dung WHERE email = ? AND trang_thai = 1");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
-
-        // Đối chiếu mật khẩu mã hóa[cite: 2]
-        if ($user && password_verify($mat_khau, $user['mat_khau'])) {
-            // 1. LƯU SESSION CỐT LÕI
-            $_SESSION['user_id'] = $user['id_nguoi_dung'];
-            $_SESSION['ho_ten'] = $user['ho_ten'];
-            $_SESSION['vai_tro'] = $user['vai_tro']; // Lưu vai trò: 'customer' hoặc 'admin'[cite: 2]
-
-            // 2. RẼ NHÁNH ĐIỀU HƯỚNG THEO VAI TRÒ[cite: 1, 2]
-            if ($user['vai_tro'] === 'admin') {
-                // Nếu là Admin -> Điều hướng vào trang quản trị
-                header("Location: " . $base_url . "/admin/index.php");
-            } else {
-                // Nếu là Khách hàng -> Điều hướng về trang chủ
-                header("Location: " . $base_url . "/index.php");
-            }
-            exit(); // Dừng luồng xử lý
-        } else {
-            $error = "Email hoặc mật khẩu không chính xác!";
+require_once __DIR__.'/../config.php';
+if(current_user())redirect('index.php');
+$error='';$email=strtolower(input('email'));
+if($_SERVER['REQUEST_METHOD']==='POST'){
+    verify_csrf();
+    try {
+        $password=is_string($_POST['mat_khau']??null)?$_POST['mat_khau']:'';
+        $key=hash('sha256',$email);$attempt=query('SELECT * FROM dang_nhap_thu WHERE khoa=?',[$key])->fetch();
+        if($attempt&&(int)$attempt['so_lan']>=5&&strtotime($attempt['lan_cuoi'])>time()-900)throw new InvalidArgumentException('Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.');
+        $u=query('SELECT * FROM nguoi_dung WHERE email=? AND trang_thai=1',[$email])->fetch();
+        $valid=password_verify($password,$u['mat_khau']??'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.');
+        if(!$u||!$valid){
+            query('INSERT INTO dang_nhap_thu (khoa,so_lan,lan_cuoi) VALUES (?,1,NOW()) ON DUPLICATE KEY UPDATE so_lan=IF(lan_cuoi<DATE_SUB(NOW(),INTERVAL 15 MINUTE),1,so_lan+1),lan_cuoi=NOW()',[$key]);
+            throw new InvalidArgumentException('Email hoặc mật khẩu không chính xác, hoặc tài khoản đã bị khóa.');
         }
-    }
+        query('DELETE FROM dang_nhap_thu WHERE khoa=?',[$key]);session_regenerate_id(true);
+        $_SESSION=['user_id'=>(int)$u['id_nguoi_dung'],'csrf'=>bin2hex(random_bytes(32))];
+        if(password_needs_rehash($u['mat_khau'],PASSWORD_DEFAULT))query('UPDATE nguoi_dung SET mat_khau=? WHERE id_nguoi_dung=?',[password_hash($password,PASSWORD_DEFAULT),$u['id_nguoi_dung']]);
+        flash('Đăng nhập thành công.');
+        $role=['customer'=>'khach_hang','staff'=>'nhan_vien'][$u['vai_tro']]??$u['vai_tro'];
+        redirect($role==='admin'?'admin/index.php':($role==='nhan_vien'?'orders/manage.php':'index.php'));
+    }catch(Throwable $ex){$error=error_message($ex);}
 }
-
-require_once "../header.php";
+$page_title='Đăng nhập';require __DIR__.'/../header.php';
 ?>
-
-<!-- GIAO DIỆN FORM ĐĂNG NHẬP (CĂN GIỮA) -->
-<div class="container section" style="max-width: 420px; margin: 60px auto;">
-    <h2 class="section-title">ĐĂNG NHẬP</h2>
-    
-    <!-- Hiển thị thông báo nhắc nhở khách vãng lai đăng nhập -->
-    <?php if ($notification): ?>
-        <p style="color: #e67e22; background: #fef5e7; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-size: 13px; font-weight: 600; border: 1px solid #fadbd8;">
-            <?= $notification ?>
-        </p>
-    <?php endif; ?>
-
-    <!-- Hiển thị thông báo lỗi nếu nhập sai thông tin -->
-    <?php if ($error): ?>
-        <p style="color: #ff4757; margin-bottom: 15px; text-align: center; font-weight: 600;"><?= $error ?></p>
-    <?php endif; ?>
-
-    <form method="POST" style="background: #fff; padding: 28px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-        <div style="margin-bottom: 16px;">
-            <label style="font-weight: 600; font-size: 14px;">Email</label>
-            <input type="email" name="email" required placeholder="example@email.com" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid #d1d5db; border-radius: 8px; outline: none;">
-        </div>
-        <div style="margin-bottom: 24px;">
-            <label style="font-weight: 600; font-size: 14px;">Mật khẩu</label>
-            <input type="password" name="mat_khau" required placeholder="••••••••" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid #d1d5db; border-radius: 8px; outline: none;">
-        </div>
-        <button type="submit" class="btn" style="width: 100%; border: none; cursor: pointer; text-align: center;">ĐĂNG NHẬP</button>
-        <p style="text-align: center; margin-top: 16px; font-size: 14px; color: #6b7280;">Chưa có tài khoản? <a href="register.php" style="color: #ff4757; font-weight: 700;">Đăng ký ngay</a></p>
-    </form>
-</div>
-
-<?php require_once "../footer.php"; ?>
+<main id="main" class="container"><div class="auth-shell"><p class="eyebrow">WELCOME BACK</p><h1>Chào bạn trở lại.</h1><p class="muted">Đăng nhập để tiếp tục với Fashion Store.</p>
+<?php if($error):?><div class="alert alert-error" role="alert"><?=e($error)?></div><?php endif;?>
+<form class="panel stack" method="post"><?=csrf_field()?><div><label for="email">Email</label><input id="email" name="email" type="email" maxlength="100" autocomplete="username" required value="<?=e($email)?>"></div><div><label for="password">Mật khẩu</label><input id="password" name="mat_khau" type="password" maxlength="72" autocomplete="current-password" required></div><button class="btn btn-wide">Đăng nhập</button></form><p class="auth-foot">Chưa có tài khoản? <a href="<?=e(url('account/register.php'))?>">Đăng ký ngay</a></p></div></main>
+<?php require __DIR__.'/../footer.php';?>
