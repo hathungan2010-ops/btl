@@ -66,7 +66,7 @@ function validate_name_email(string $name,string $email):void {
     if(mb_strlen($name)<2||mb_strlen($name)>100)throw new InvalidArgumentException('Họ tên cần từ 2 đến 100 ký tự.');
     if(!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($email)>100)throw new InvalidArgumentException('Email không hợp lệ hoặc quá dài.');
 }
-function validate_password(string $password):void { if(strlen($password)<8||strlen($password)>72)throw new InvalidArgumentException('Mật khẩu cần từ 8 đến 72 byte.'); }
+function validate_password(string $password):void { if(mb_strlen($password)<8||strlen($password)>72)throw new InvalidArgumentException('Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte.'); }
 function validate_phone(string $phone,bool $required=true):void { if(($required||$phone!=='')&&!preg_match('/^\+?[0-9][0-9 .-]{7,18}[0-9]$/D',$phone))throw new InvalidArgumentException('Số điện thoại không hợp lệ (9–20 ký tự).'); }
 function product_image(?string $name):string {
     return $name&&basename($name)===$name&&is_file(__DIR__.'/../images/products/'.$name)?url('images/products/'.rawurlencode($name)):url('images/product-placeholder.svg');

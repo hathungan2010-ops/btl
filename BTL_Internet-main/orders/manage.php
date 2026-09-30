@@ -7,7 +7,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 }
 $state=input('state',$_GET);$search=mb_substr(input('search',$_GET),0,100);$where=['1=1'];$params=[];
 if(isset(ORDER_STATES[$state])){$where[]='dh.trang_thai=?';$params[]=$state;}
-if($search!==''){$where[]='(dh.id_don_hang=? OR dh.ho_ten_nhan LIKE ? OR dh.so_dien_thoai LIKE ?)';array_push($params,ctype_digit($search)?(int)$search:0,"%$search%","%$search%");}
+if($search!==''){$where[]='(dh.id_don_hang=? OR dh.ho_ten_nhan LIKE ? OR dh.so_dien_thoai LIKE ?)';array_push($params,preg_match('/^\d+$/D',$search)?(int)$search:0,"%$search%","%$search%");}
 $from=' FROM don_hang dh JOIN nguoi_dung nd ON nd.id_nguoi_dung=dh.id_nguoi_dung WHERE '.implode(' AND ',$where);
 $total=(int)query('SELECT COUNT(*)'.$from,$params)->fetchColumn();$pages=max(1,(int)ceil($total/15));$page=max(1,min($pages,(int)input('page',$_GET,'1')));$offset=($page-1)*15;
 $orders=query('SELECT dh.*,nd.email'.$from." ORDER BY dh.id_don_hang DESC LIMIT 15 OFFSET $offset",$params)->fetchAll();

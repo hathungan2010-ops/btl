@@ -28,7 +28,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             $pairs[$pair]=true;if($id)$ids[$id]=true;
             $validated[]=['id'=>$id,'size'=>$size,'color'=>$color,'price'=>price(input('gia',$row)),
                 'stock'=>integer(input('so_luong_ton',$row),0,1000000),
-                'original'=>integer(input('original_stock',$row,(string)($row['so_luong_ton']??0)),0,1000000)];
+                'original'=>integer(input('original_stock',$row,input('so_luong_ton',$row,'0')),0,1000000)];
         }
         $file=$_FILES['hinh_anh']??null;
         if($file&&($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_NO_FILE){

@@ -3,3 +3,6 @@
 **/images/products/upload-*
 **/tests/.runtime/
 *.log
+
+__pycache__/
+*.pyc

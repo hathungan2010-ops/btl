@@ -495,40 +495,6 @@ img {
   }
 }
 
-/* SỬA LỖI HEADER BỊ BẺ DÒNG CHỮ*/
-
-/* 1. Cấm tuyệt đối tất cả các chữ trên Header rớt xuống 2 dòng */
-.header-container,
-.header-container a,
-.header-container span,
-.logo,
-.menu a {
-  white-space: nowrap !important;
-}
-
-/* 2. Giảm bớt khoảng cách gap giữa các phần tử để vừa khung màn hình */
-.header-container {
-  gap: 16px !important;
-}
-
-/* 3. Thu nhỏ độ rộng ô tìm kiếm để nhường không gian cho tên người dùng */
-.search-form input {
-  width: 160px !important;
-}
-
-/* 4. Định dạng Tên người dùng và Nút đăng xuất */
-.user-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--primary-color);
-}
-
-.logout-btn {
-  color: #ff4757 !important;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 /* Shared forms, role-based management and responsive layouts. */
 :root{--primary-color:#273021;--accent-color:#536544;--bg-light:#faf9f6;--border-color:#e1e5da}
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:break-word}
@@ -538,7 +504,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{
 .container{width:min(1200px,calc(100% - 48px));padding-inline:0}
 .section{padding-block:42px}.section-gap{margin-top:30px}
 .header-container{height:auto;min-height:85px;gap:30px}.header{position:relative}
-.header .menu{padding-block:12px;flex-wrap:wrap;gap:25px}.header-actions{align-items:center;gap:18px;font-size:13px}.header-actions form{margin:0}.user-name{max-width:160px}.user-name small{display:block}
+.header .menu{display:flex;justify-content:flex-start;padding-block:12px;flex-wrap:wrap;gap:25px}.header-actions{align-items:center;gap:18px;font-size:13px}.header-actions form{margin:0}.user-name{max-width:160px}.user-name small{display:block}
 .search-form{margin-left:auto;max-width:370px;flex:1}.search-form input{width:100%;min-width:0}
 .sr-only,.skip-link:not(:focus){position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.skip-link:focus{position:absolute;z-index:2000;background:white;padding:15px}
 .btn{background:#3f5032;color:#fff;border:1px solid #3f5032;border-radius:5px;padding:11px 22px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1.5;box-shadow:none;font-weight:600}
@@ -574,3 +540,5 @@ input:not([type=hidden]):not([type=checkbox]),select,textarea{width:100%;padding
 @media(max-width:760px){.container{width:calc(100% - 32px)}.header .menu{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;gap:20px}.products{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.detail-layout,.checkout-grid,.dashboard-grid{grid-template-columns:1fr}.cart-bottom{flex-direction:column}.cart-bottom .summary{width:100%;min-width:0}.footer-container{grid-template-columns:1fr 1fr;gap:24px}.header-container{padding-inline:16px}.hero{min-height:200px}.user-name{display:none}.panel{padding:20px}.page-heading{align-items:flex-start}.section{padding-block:30px}.detail-layout{gap:24px}}
 @media(max-width:480px){.form-grid{grid-template-columns:1fr}.page-heading{flex-direction:column}.header-actions{gap:12px;font-size:11px}.logo{font-size:19px}.stats{gap:12px}.stat{padding:15px}.product-name{font-size:13px}.section-heading{gap:12px}.section-heading .underlined{font-size:11px;white-space:nowrap}.bar-row{grid-template-columns:55px 1fr 96px}.footer-container{grid-template-columns:1fr}.summary-total{font-size:20px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.footer{margin-top:40px}.footer-column a{display:block;margin-bottom:8px}
