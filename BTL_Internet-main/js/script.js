@@ -1,0 +1,1 @@
+console.log("Fashion Store JS loaded");
